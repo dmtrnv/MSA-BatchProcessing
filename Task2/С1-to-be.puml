@@ -1,0 +1,25 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(client, "B2B-клиент", "Получает кастомный прайс-лист в CSV/XLS")
+Person(manager, "B2B-менеджер", "Отслеживает выгрузку, разбирает инциденты")
+
+System_Ext(scheduler, "Kubernetes CronJob", "Планировщик запуска по расписанию 06:00")
+System(batch, "Price List Batch Export", "Генерация кастомных прайс-листов из данных БД (Job в K8s)")
+SystemDb_Ext(pg, "PostgreSQL", "products, categories, clients, client_prices")
+System_Ext(s3, "Object Storage (S3/MinIO)", "Хранение и раздача готовых файлов")
+System_Ext(notify, "Notification Service", "Email/вебхуки: доставка прайс-листов и алерты")
+System_Ext(obs, "Monitoring & Logging", "Prometheus/Grafana + Loki/ELK")
+
+Rel(scheduler, batch, "Запускает Job", "06:00 daily")
+Rel(batch, pg, "Читает цены и справочники", "SQL")
+Rel(batch, s3, "Пишет CSV/XLS", "S3 API")
+Rel(batch, notify, "Отправляет уведомления и файлы", "SMTP/HTTP")
+Rel(batch, obs, "Отдаёт логи, метрики, события Job", "stdout/Prometheus")
+Rel(notify, client, "Доставляет прайс-лист", "Email/HTTPS")
+Rel(client, s3, "Скачивает файл по ссылке", "HTTPS")
+Rel(manager, obs, "Смотрит статус и алерты", "UI")
+
+@enduml
