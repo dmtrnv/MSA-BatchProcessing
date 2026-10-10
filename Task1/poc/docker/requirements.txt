@@ -1,0 +1,5 @@
+apache-airflow-providers-postgres
+apache-airflow-providers-smtp
+psycopg2-binary
+pyspark==3.5.3
+pandas
