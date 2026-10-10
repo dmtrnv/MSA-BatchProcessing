@@ -1,0 +1,30 @@
+@startuml
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(warehouse, "Сотрудник склада", "Загружает CSV и отслеживает статус")
+System_Boundary(tw, "TradeWare") {
+  Container(ui, "ERP Web UI", "Angular", "Загрузка файла, отображение статуса")
+  Container(api, "Backend API", "WildFly/Java", "Аутентификация, базовая проверка, регистрация задания, публикация в очередь")
+  Container(worker, "Batch Worker", "Spring Boot + Spring Batch", "Stateless-инстансы: чтение чанками, валидация, обогащение, batch write, retry/restart")
+  ContainerQueue(queue, "Очередь заданий", "Apache Kafka", "Буфер между приёмом и исполнением")
+  ContainerDb(jobs, "Job Repository / ImportJob", "PostgreSQL", "Статусы, checkpoints, checksum, аудит")
+  ContainerDb(refdb, "БД справочных данных о товарах", "PostgreSQL", "Данные о характеристиках товаров, промоакциях и т.д.")
+  ContainerDb(targetdb, "БД номенклатуры", "PostgreSQL", "Актуальные данные о наличии товаров на складах")
+  ContainerDb(gcs, "Файловое хранилище", "Google Cloud Storage", "Загруженные файлы отчетов")
+}
+Rel(warehouse, ui, "Использует")
+Rel(ui, api, "Загрузка CSV / запрос статуса", "HTTPS")
+Rel(api, gcs, "Сохраняет исходный файл", "GCS API")
+Rel(api, jobs, "Создаёт/читает ImportJob", "SQL")
+Rel(api, queue, "Публикует задание (Kafka producer через outbox)", "Kafka protocol")
+Rel(worker, queue, "Получает задание (Kafka consumer group, at-least-once)", "Kafka protocol")
+Rel(worker, jobs, "Получение и запись данных", "SQL")
+Rel(worker, gcs, "Получение и запись данных", "GCS API")
+Rel(worker, refdb, "Получение и запись данных", "SQL")
+Rel(worker, targetdb, "Получение и запись данных", "SQL")
+Rel(api, ui, "Статус/уведомление", "WebSocket")
+
+@enduml

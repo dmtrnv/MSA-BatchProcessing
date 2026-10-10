@@ -1,0 +1,70 @@
+@startuml
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(warehouse, "Сотрудник склада", "Загружает CSV и отслеживает статус")
+Person(devops, "DevOps / дежурный", "Реагирует на алерты, смотрит дашборды")
+
+System_Boundary(tw, "TradeWare") {
+  Container(ui, "ERP Web UI", "Angular", "Загрузка файла, отображение статуса")
+  Container(api, "Backend API", "WildFly/Java", "Аутентификация, базовая проверка, регистрация задания, публикация в очередь")
+  Container(worker, "Batch Worker", "Spring Boot + Spring Batch", "Stateless-инстансы: чтение чанками, валидация, обогащение, batch write, retry/restart")
+  ContainerQueue(queue, "Очередь заданий", "Apache Kafka", "Буфер между приёмом и исполнением")
+  ContainerDb(jobs, "Job Repository / ImportJob", "PostgreSQL", "Статусы, checkpoints, checksum, аудит")
+  ContainerDb(refdb, "БД справочных данных о товарах", "PostgreSQL", "Данные о характеристиках товаров, промоакциях и т.д.")
+  ContainerDb(targetdb, "БД номенклатуры", "PostgreSQL", "Актуальные данные о наличии товаров на складах")
+  ContainerDb(gcs, "Файловое хранилище", "Google Cloud Storage", "Загруженные файлы отчетов")
+}
+
+System_Boundary(obs, "Observability") {
+  Container(prom, "Prometheus", "Prometheus", "Сбор и хранение метрик, вычисление правил алертов, target SD")
+  Container(alertmgr, "Alertmanager", "Alertmanager", "Маршрутизация, дедупликация, группировка и подавление алертов")
+  Container(loki, "Loki", "Grafana Loki", "Централизованное хранилище структурированных логов")
+  Container(promtail, "Promtail", "Grafana Promtail", "Сбор stdout-логов контейнеров и обогащение labels")
+  Container(grafana, "Grafana", "Grafana", "Единые дашборды: метрики, логи, статусы jobs, SLI/SLO")
+  Container(pgexp, "postgres_exporter", "postgres_exporter", "Метрики PostgreSQL: соединения, блокировки, WAL, deadlocks")
+  Container(queueexp, "Kafka Metrics Exporter", "Kafka Exporter", "Метрики Kafka: consumer lag, offsets, брокеры/партиции (ISR, under-replicated)")
+  Container(gcsexp, "GCS Metrics Exporter", "Cloud Monitoring exporter", "Метрики GCS: объём/объекты бакета, ошибки и latency запросов, retention")
+}
+
+System_Ext(slack, "Корпоративный мессенджер", "Канал дежурной команды")
+System_Ext(email, "Email (SMTP)", "Оповещения операционных отделов")
+
+Rel(warehouse, ui, "Использует")
+Rel(devops, grafana, "Смотрит дашборды/статусы", "HTTPS")
+Rel(devops, slack, "Получает алерты")
+
+Rel(ui, api, "Загрузка CSV / запрос статуса", "HTTPS")
+Rel(api, gcs, "Сохраняет исходный файл", "GCS API")
+Rel(api, jobs, "Создаёт/читает ImportJob", "SQL")
+Rel(api, queue, "Публикует задание (Kafka producer через outbox)", "Kafka protocol")
+Rel(worker, queue, "Получает задание (Kafka consumer group, at-least-once)", "Kafka protocol")
+Rel(worker, jobs, "Получение и запись данных", "SQL")
+Rel(worker, gcs, "Получение и запись данных", "GCS API")
+Rel(worker, refdb, "Получение и запись данных", "SQL")
+Rel(worker, targetdb, "Получение и запись данных", "SQL")
+Rel(api, ui, "Статус/уведомление", "WebSocket")
+
+Rel(prom, api, "Сбор метрик", "HTTP")
+Rel(prom, worker, "Сбор метрик", "HTTP")
+Rel(prom, pgexp, "Сбор метрик", "HTTP")
+Rel(pgexp, jobs, "Сбор метрик", "SQL")
+Rel(pgexp, refdb, "Сбор метрик", "SQL")
+Rel(pgexp, targetdb, "Сбор метрик", "SQL")
+Rel(prom, queueexp, "Сбор метрик Kafka", "HTTP")
+Rel(queueexp, queue, "Сбор метрик", "Kafka protocol")
+Rel(prom, gcsexp, "Сбор метрик", "HTTP")
+Rel(gcsexp, gcs, "Сбор метрик", "Cloud Monitoring API")
+Rel(promtail, api, "Читает структурированные JSON-логи (stdout)")
+Rel(promtail, worker, "Читает структурированные JSON-логи (stdout)")
+Rel(promtail, loki, "Отправка логов", "HTTP")
+Rel(prom, alertmgr, "Отправка firing-алертов", "HTTP")
+Rel(alertmgr, slack, "Нотификации", "Webhook")
+Rel(alertmgr, email, "Нотификации", "SMTP")
+Rel(grafana, prom, "Запросы метрик", "PromQL")
+Rel(grafana, loki, "Запросы логов", "LogQL")
+Rel(grafana, alertmgr, "Статус алертов", "HTTP")
+
+@enduml
