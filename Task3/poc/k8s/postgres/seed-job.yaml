@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-seed
+  namespace: shipping
+  labels:
+    app: postgres-seed
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: postgres-seed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: shipment-exporter:0.1.0
+          imagePullPolicy: Never
+          command: ["/app/seed"]
+          envFrom:
+            - configMapRef:
+                name: exporter-config
+          env:
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: EXPORTER_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: exporter-db
+                  key: DB_USER
+            - name: EXPORTER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: exporter-db
+                  key: DB_PASSWORD
+            - name: SEED_CLIENTS
+              value: "10000"
+            - name: SEED_DRIVERS
+              value: "1000"
+            - name: SEED_VEHICLES
+              value: "500"
+            - name: SEED_SHIPMENTS
+              value: "50000"
+            - name: SEED_EVENTS
+              value: "500000"
+            - name: SEED_RANDOM
+              value: "42"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
