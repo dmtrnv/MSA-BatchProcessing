@@ -1,0 +1,82 @@
+name: batch-poc
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "batch-poc-secret-key"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__SMTP__SMTP_HOST: "mailpit"
+    AIRFLOW__SMTP__SMTP_PORT: "1025"
+    AIRFLOW__SMTP__SMTP_STARTTLS: "False"
+    AIRFLOW__SMTP__SMTP_SSL: "False"
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: "airflow@example.com"
+    AIRFLOW_CONN_SOURCE_POSTGRES: "postgresql://batch:batch@postgres-source:5432/batch"
+    ALERT_EMAIL: "${ALERT_EMAIL:-admin@example.com}"
+    BATCH_DATA_DIR: "/opt/airflow/data"
+    ANOMALY_THRESHOLD: "${ANOMALY_THRESHOLD:-0.10}"
+    FLAKY_MAX_FAILURES: "${FLAKY_MAX_FAILURES:-2}"
+    SOURCE_PG_CONN_ID: "source_postgres"
+  volumes: &airflow-common-volumes
+    - ../dags:/opt/airflow/dags
+    - ../data:/opt/airflow/data
+    - ../scripts:/opt/airflow/scripts
+
+services:
+  postgres-source:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: batch
+      POSTGRES_USER: batch
+      POSTGRES_PASSWORD: batch
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_source_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U batch -d batch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  data-init:
+    <<: *airflow-common
+    command: ["python", "/opt/airflow/scripts/generate_source_data.py"]
+    environment:
+      <<: *airflow-common-env
+      DB_HOST: "postgres-source"
+      DB_PORT: "5432"
+      DB_NAME: "batch"
+      DB_USER: "batch"
+      DB_PASSWORD: "batch"
+      ROW_COUNT: "${ROW_COUNT:-10000}"
+      CUSTOMERS: "${CUSTOMERS:-2000}"
+      SEED: "${SEED:-42}"
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+
+  airflow:
+    <<: *airflow-common
+    command: ["bash", "/start-airflow.sh"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+      postgres-source:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+volumes:
+  pg_source_data:

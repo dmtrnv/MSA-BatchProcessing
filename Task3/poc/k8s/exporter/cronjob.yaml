@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shipment-export
+  namespace: shipping
+  labels:
+    app: shipment-export
+    app.kubernetes.io/part-of: shipment-analytics
+spec:
+  schedule: "0 20 * * *"
+  timeZone: Europe/Moscow
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  suspend: false
+  jobTemplate:
+    metadata:
+      labels:
+        app: shipment-export
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: shipment-export
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: exporter
+              image: shipment-exporter:0.1.0
+              imagePullPolicy: Never
+              command: ["/app/exporter"]
+              envFrom:
+                - configMapRef:
+                    name: exporter-config
+              env:
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: exporter-db
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: exporter-db
+                      key: DB_PASSWORD
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_USER
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_PASSWORD
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
